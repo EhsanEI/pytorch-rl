@@ -1,3 +1,5 @@
+import utils
+import numpy as np
 
 
 class ExpSarsaAgent():
@@ -5,7 +7,17 @@ class ExpSarsaAgent():
     Methods work with mini-batches.
     '''
 
-    def __init__(self, seed):
+    def __init__(self, config):
+        self.config = config
+
+        buffer_config = {
+            'seed': config['seed'],
+            'size': config['buffer_size']
+        }
+        self.buffer = utils.ReplayBuffer(config=buffer_config)
+
+        self.rng = np.random.default_rng(config['seed'])
+
         pass
 
     def reset(self):
