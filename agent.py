@@ -15,8 +15,9 @@ class QNet(torch.nn.Module):
             widths.append(config['width'])
         widths.append(config['num_actions'])
 
-        self.layers = [torch.nn.Linear(widths[i], widths[i+1])
-                       for i in range(len(widths)-1)]
+        self.layers = torch.nn.ModuleList(
+            [torch.nn.Linear(widths[i], widths[i+1])
+             for i in range(len(widths)-1)])
 
         for layer in self.layers:
             torch.nn.init.orthogonal_(layer.weight)
@@ -51,6 +52,8 @@ class ExpSarsaAgent():
             'input_dim': config['input_dim']
         }
         self.qnet = QNet(net_config)
+        self.optimizer = torch.optim.Adam(self.qnet.parameters(),
+                                          lr=config['step-size'])
 
     def reset(self):
         pass
