@@ -55,11 +55,43 @@ class ExpSarsaAgent():
         self.optimizer = torch.optim.Adam(self.qnet.parameters(),
                                           lr=config['step-size'])
 
-    def reset(self):
-        pass
-
     def step(self, x, a, r, gamma, xp):
-        pass
+        self.buffer.push(x, a, r, gamma, xp)
+        batch = self.buffer.sample(self.config['batch_size'])
+        self._train(batch)
 
-    def action(self, x):
-        pass
+    def _train(self, batch):
+        x = np.array([item[0] for item in batch])
+        x_tensor = torch.from_array(x).float()
+        xp = np.array([item[4] for item in batch])
+        xp_tensor = torch.from_array(xp).float()
+        qx = self.qnet(x_tensor)
+
+        # TODO: handle termination?
+        # TODO: separate target net
+        qxp = self.qnet(xp_tensor).detach()
+
+        a = np.array([item[1] for item in batch])
+        r = np.array([item[2] for item in batch])
+        gamma = np.array([item[3] for item in batch])
+
+        target = qx.detach().clone()
+
+        pip = F.softmax(qxp)  # policy for xp
+        bootstrap = (qxp*pip).sum(dim=-1)
+
+        for i in range(target.shape[0]):
+            target[i][a[i]] = r[i] + gamma[i] * bootstrap[i]
+
+        loss = torch.nn.MSELoss(qx, target)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+    def act(self, x):
+        value = self.qnet(x)
+        return self._softmax_policy(value)
+
+    def _softmax_policy(self, value):
+        action = F.softmax(value).argmax(dim=-1)
+        return action.detach().cpu().numpy()
