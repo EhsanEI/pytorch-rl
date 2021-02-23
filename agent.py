@@ -52,24 +52,33 @@ class ExpSarsaAgent():
             'input_dim': config['input_dim']
         }
         self.qnet = QNet(net_config)
+        self.targetnet = QNet(net_config)
         self.optimizer = torch.optim.Adam(self.qnet.parameters(),
-                                          lr=config['step-size'])
+                                          lr=config['step_size'])
+        self.loss = torch.nn.MSELoss()
 
     def step(self, x, a, r, gamma, xp):
         self.buffer.push(x, a, r, gamma, xp)
-        batch = self.buffer.sample(self.config['batch_size'])
-        self._train(batch)
+
+        self.targetnet.load_state_dict(self.qnet.state_dict())
+        for _ in range(self.config['updates_per_step']):
+            batch = self.buffer.sample(self.config['batch_size'])
+            self._train(batch)
+
+    def act(self, x):
+        x_tensor = torch.from_numpy(x).float()
+        value = self.qnet(x_tensor)
+        action = self._softmax_tau(value).argmax(dim=-1)
+        return action.detach().cpu().numpy()[0]
 
     def _train(self, batch):
         x = np.array([item[0] for item in batch])
-        x_tensor = torch.from_array(x).float()
+        x_tensor = torch.from_numpy(x).float()
         xp = np.array([item[4] for item in batch])
-        xp_tensor = torch.from_array(xp).float()
+        xp_tensor = torch.from_numpy(xp).float()
         qx = self.qnet(x_tensor)
 
-        # TODO: handle termination?
-        # TODO: separate target net
-        qxp = self.qnet(xp_tensor).detach()
+        qxp = self.targetnet(xp_tensor).detach()
 
         a = np.array([item[1] for item in batch])
         r = np.array([item[2] for item in batch])
@@ -77,21 +86,16 @@ class ExpSarsaAgent():
 
         target = qx.detach().clone()
 
-        pip = F.softmax(qxp)  # policy for xp
+        pip = self._softmax_tau(qxp)  # policy for xp
         bootstrap = (qxp*pip).sum(dim=-1)
 
         for i in range(target.shape[0]):
             target[i][a[i]] = r[i] + gamma[i] * bootstrap[i]
 
-        loss = torch.nn.MSELoss(qx, target)
+        loss = self.loss(qx, target)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-    def act(self, x):
-        value = self.qnet(x)
-        return self._softmax_policy(value)
-
-    def _softmax_policy(self, value):
-        action = F.softmax(value).argmax(dim=-1)
-        return action.detach().cpu().numpy()
+    def _softmax_tau(self, logits):
+        return F.softmax(logits/self.config['softmax_tau'], dim=-1)
